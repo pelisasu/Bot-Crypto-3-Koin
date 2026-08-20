@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-import requests
 import logging
+import yfinance as yf
 from sklearn.ensemble import RandomForestClassifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -11,21 +11,29 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 class CryptoBrain:
     def __init__(self, symbol="BTCUSDT"):
         self.symbol = symbol.upper()
+        # Robah format simbol Binance (BTCUSDT) jadi format Yahoo Finance (BTC-USD)
+        self.yf_symbol = self.symbol.replace("USDT", "-USD")
         self.history_file = f"history_{self.symbol}.csv"
         self.model_file = f"model_{self.symbol}.pkl"
 
     def fetch_data(self):
-        """Nyokot data candlestick tina Binance Public API"""
-        url = f"https://api.binance.com/api/v3/klines?symbol={self.symbol}&interval=1h&limit=150"
+        """Nyokot data candlestick tina Yahoo Finance"""
         try:
-            res = requests.get(url, timeout=10)
-            data = res.json()
-            df = pd.DataFrame(data, columns=[
-                'Open_time', 'Open', 'High', 'Low', 'Close', 'Volume',
-                'Close_time', 'Quote_asset_volume', 'Number_of_trades',
-                'Taker_buy_base', 'Taker_buy_quote', 'Ignore'
-            ])
-            df = df[['Open', 'High', 'Low', 'Close']].astype(float)
+            logging.info(f"Narik data {self.yf_symbol} tina Yahoo Finance...")
+            # Tarik data sajarah per jam (1h)
+            ticker = yf.Ticker(self.yf_symbol)
+            df = ticker.history(period="5d", interval="60m")
+            
+            if df.empty:
+                # Coba cara kadua bilih interval 60m teu kabaca
+                df = ticker.history(period="7d", interval="1h")
+                
+            if df.empty:
+                logging.error(f"Data Yahoo Finance keur {self.yf_symbol} kosong!")
+                return pd.DataFrame()
+                
+            # Ambil kolom anu diperlukeun wungkul
+            df = df[['Open', 'High', 'Low', 'Close']].dropna()
             return df
         except Exception as e:
             logging.error(f"Gagal fetch data {self.symbol}: {e}")
