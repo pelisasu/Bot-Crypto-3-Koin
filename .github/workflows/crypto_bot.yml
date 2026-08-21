@@ -9,7 +9,7 @@ jobs:
   run-crypto:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Ieu wajib aya supados tiasa nge-push hasil training AI
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
