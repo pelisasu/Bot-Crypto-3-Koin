@@ -20,24 +20,29 @@ def run_crypto_bot():
             logging.warning(f"Gagal narik data pasar pikeun {symbol}!")
             continue
         
-        # Hitung Akurasi Live
+        # Hitung Akurasi Live kalayan safety check
         acc = brain.update_brain(df)
+        
+        # Pastikeun acc téh angka (float/int), upami None jadikeun 0.0
+        if acc is None:
+            acc = 0.0
+            
         current_price = float(df['Close'].iloc[-1])
         
-        # Log status live di console (Telegram dibersihkeun tina spam status)
+        # Log status live di console
         status_msg = f"🟢 Bot Elite Crypto {symbol} Aktif | Akurasi Live: {acc*100:.2f}% | Harga: {current_price:.2f}"
         logging.info(status_msg)
         
-        # Logika Sinyal: Ngan kaluar sinyal mun akurasi >= 80% (0.80)
+        # Logika Sinyal
         if acc >= 0.80:
             try:
                 if hasattr(executor, 'get_signal'):
                     signal, price, sl, tp = executor.get_signal(df)
                     if signal and not executor.is_spam(signal):
                         executor.send_notification(signal, price, sl, tp)
-                        logging.info(f"🔥 Sinyal {symbol} {signal} dikirim sabab akurasi luhur ({acc*100:.2f}%)!")
+                        logging.info(f"🔥 Sinyal {symbol} {signal} dikirim!")
                     else:
-                        logging.info(f"Akurasi {symbol} cukup, tapi teu acan aya pola entry singkron atanapi masih anti-spam.")
+                        logging.info(f"Pola entry {symbol} teu acan singkron atanapi masih anti-spam.")
             except Exception as e:
                 logging.info(f"Catetan Eksekusi Sinyal {symbol}: {e}")
         else:
