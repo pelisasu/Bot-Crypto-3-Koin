@@ -20,8 +20,8 @@ def send_telegram_msg(text):
 def run_crypto_bot():
     coins = ["BTCUSDT", "SOLUSDT", "ETHUSDT"]
     
-    # Kirim béwara sakali yen bot mimiti aktif/jalan
-    send_telegram_msg("🟢 *Crypto Bot 24/7 Sniper* Aktif & Sedang Memindai Pasar (BTC, SOL, ETH)...")
+    # Bungkus harga real-time dina hiji pesen rangkuman
+    price_summary = "🟢 *Crypto Bot 24/7 Sniper* - Update Harga\n━━━━━━━━━━━━━━━━━━━━━\n"
 
     for coin in coins:
         logging.info(f"=== Mulai mariksa pasar {coin} ===")
@@ -33,12 +33,16 @@ def run_crypto_bot():
             df = brain.fetch_data()
             if df.empty:
                 logging.warning(f"Data {coin} kosong atawa gagal ditarik tina Yahoo Finance!")
+                price_summary += f"🪙 *{coin}*: Gagal tarik data\n"
                 continue
                 
             # 2. Update Otak AI
             brain.update_brain(df)
             
             current_price = df['Close'].iloc[-1]
+            
+            # Tambahkeun harga kana rangkuman (bisa dicocokkeun jeung MT5)
+            price_summary += f"🪙 *{coin}*: `{current_price:.2f}`\n"
             
             # 3. Candak Sinyal AI
             signal = executor.get_signal(df)
@@ -48,7 +52,7 @@ def run_crypto_bot():
                 
             logging.info(f"Sinyal kabaca pikeun {coin}: {signal} | Harga: {current_price}")
             
-            # 4. Cek Anti-Spam & Kirim Telegram (Mencegah notif berulang jika sinyal sama)
+            # 4. Cek Anti-Spam & Kirim Telegram (Husus Sinyal BUY/SELL)
             if executor.is_spam(signal):
                 logging.info(f"{coin}: Sinyal masih tetep {signal}. Teu spam notif.")
             else:
@@ -57,6 +61,11 @@ def run_crypto_bot():
                 
         except Exception as e:
             logging.error(f"Error lumangsung dina koin {coin}: {e}")
+            price_summary += f"🪙 *{coin}*: Error\n"
+
+    # Kirim rangkuman harga real-time ka Telegram sakaligus
+    price_summary += "-------------------------------------\n⏳ Status: AI nuju memindai sinyal..."
+    send_telegram_msg(price_summary)
 
 if __name__ == "__main__":
     run_crypto_bot()
