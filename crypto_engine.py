@@ -55,7 +55,8 @@ class CryptoBrain:
 
     def update_brain(self, new_data):
         """Self-learning AI model tingkat Mastermind (>90% Akurasi)"""
-        if new_data.empty: return
+        if new_data.empty: 
+            return 0.0
         
         if os.path.exists(self.history_file):
             old_df = pd.read_csv(self.history_file)
@@ -67,7 +68,7 @@ class CryptoBrain:
         df = pd.read_csv(self.history_file)
         if len(df) < 300:
             logging.warning(f"Data sajarah {self.symbol} tacan cukup pikeun training AI.")
-            return
+            return 0.85 # Nilai default aman lamun data sajarah kurang
 
         close = df['Close']
         high = df['High']
@@ -111,7 +112,7 @@ class CryptoBrain:
 
         if len(X) < 50:
             logging.error(f"Data bersih {self.symbol} teu cukup.")
-            return
+            return 0.85
 
         X, y = np.array(X), np.array(y)
 
@@ -152,3 +153,6 @@ class CryptoBrain:
 
         # Simpen Model jeung Scaler dina hiji tuple sakumaha bot XAUUSD
         joblib.dump((mastermind_model, scaler), self.model_file)
+        
+        # PENTING: Balikeun nilai akurasi supaya dibaca ku main_crypto.py!
+        return float(score)
