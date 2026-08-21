@@ -4,68 +4,44 @@ import requests
 from crypto_engine import CryptoBrain
 from crypto_execution import CryptoExecution
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-def send_telegram_msg(text):
-    token = os.getenv("TELEGRAM_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
-    except Exception as e:
-        logging.warning(f"Gagal kirim pesan Telegram: {e}")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 def run_crypto_bot():
-    coins = ["BTCUSDT", "SOLUSDT", "ETHUSDT"]
+    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    logging.info("=== Mulai Analisis Pasar Crypto Elite AI (BTC, ETH, SOL) ===")
     
-    # Bungkus harga real-time dina hiji pesen rangkuman
-    price_summary = "🟢 *Crypto Bot 24/7 Sniper* - Update Harga\n━━━━━━━━━━━━━━━━━━━━━\n"
-
-    for coin in coins:
-        logging.info(f"=== Mulai mariksa pasar {coin} ===")
-        try:
-            brain = CryptoBrain(coin)
-            executor = CryptoExecution(coin)
-            
-            # 1. Tarik data candlestick tina Yahoo Finance
-            df = brain.fetch_data()
-            if df.empty:
-                logging.warning(f"Data {coin} kosong atawa gagal ditarik tina Yahoo Finance!")
-                price_summary += f"🪙 *{coin}*: Gagal tarik data\n"
-                continue
-                
-            # 2. Update Otak AI
-            brain.update_brain(df)
-            
-            current_price = df['Close'].iloc[-1]
-            
-            # Tambahkeun harga kana rangkuman (bisa dicocokkeun jeung MT5)
-            price_summary += f"🪙 *{coin}*: `{current_price:.2f}`\n"
-            
-            # 3. Candak Sinyal AI
-            signal = executor.get_signal(df)
-            if not signal:
-                logging.info(f"Sinyal keur {coin} teu acan kabentuk. Harga: {current_price}")
-                continue
-                
-            logging.info(f"Sinyal kabaca pikeun {coin}: {signal} | Harga: {current_price}")
-            
-            # 4. Cek Anti-Spam & Kirim Telegram (Husus Sinyal BUY/SELL)
-            if executor.is_spam(signal):
-                logging.info(f"{coin}: Sinyal masih tetep {signal}. Teu spam notif.")
-            else:
-                executor.send_notification(signal, current_price)
-                logging.info(f"🔥 SUKSES: Sinyal anyar {coin} ({signal}) dikirim ka Telegram!")
-                
-        except Exception as e:
-            logging.error(f"Error lumangsung dina koin {coin}: {e}")
-            price_summary += f"🪙 *{coin}*: Error\n"
-
-    # Kirim rangkuman harga real-time ka Telegram sakaligus
-    price_summary += "-------------------------------------\n⏳ Status: AI nuju memindai sinyal..."
-    send_telegram_msg(price_summary)
+    for symbol in symbols:
+        logging.info(f"--- Menganalisis {symbol} ---")
+        brain = CryptoBrain(symbol)
+        executor = CryptoExecution(symbol)
+        
+        df = brain.fetch_data()
+        if df.empty:
+            logging.warning(f"Gagal narik data pasar pikeun {symbol}!")
+            continue
+        
+        # Hitung Akurasi Live
+        acc = brain.update_brain(df)
+        current_price = float(df['Close'].iloc[-1])
+        
+        # Log status live di console (Telegram dibersihkeun tina spam status)
+        status_msg = f"🟢 Bot Elite Crypto {symbol} Aktif | Akurasi Live: {acc*100:.2f}% | Harga: {current_price:.2f}"
+        logging.info(status_msg)
+        
+        # Logika Sinyal: Ngan kaluar sinyal mun akurasi >= 80% (0.80)
+        if acc >= 0.80:
+            try:
+                if hasattr(executor, 'get_signal'):
+                    signal, price, sl, tp = executor.get_signal(df)
+                    if signal and not executor.is_spam(signal):
+                        executor.send_notification(signal, price, sl, tp)
+                        logging.info(f"🔥 Sinyal {symbol} {signal} dikirim sabab akurasi luhur ({acc*100:.2f}%)!")
+                    else:
+                        logging.info(f"Akurasi {symbol} cukup, tapi teu acan aya pola entry singkron atanapi masih anti-spam.")
+            except Exception as e:
+                logging.info(f"Catetan Eksekusi Sinyal {symbol}: {e}")
+        else:
+            logging.info(f"⚠️ Akurasi {symbol} handap ({acc*100:.2f}% < 80%). Sinyal ditahan.")
 
 if __name__ == "__main__":
     run_crypto_bot()
