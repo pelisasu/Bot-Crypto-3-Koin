@@ -14,13 +14,13 @@ def run_crypto_bot():
             brain = CryptoBrain(coin)
             executor = CryptoExecution(coin)
             
-            # 1. Tarik data tina Binance
+            # 1. Tarik data candlestick (ti Yahoo Finance dumasar CryptoBrain)
             df = brain.fetch_data()
             if df.empty:
-                logging.warning(f"Data {coin} kosong atawa gagal ditarik ti Binance!")
+                logging.warning(f"Data {coin} kosong atawa gagal ditarik tina Yahoo Finance!")
                 continue
                 
-            # 2. Update Otak AI
+            # 2. Update Otak AI (Training & Self-Learning)
             brain.update_brain(df)
             
             # 3. Candak Sinyal
