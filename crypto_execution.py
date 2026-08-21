@@ -1,42 +1,31 @@
-import pandas as pd
-import numpy as np
-import joblib
 import os
+import requests
+import joblib
+import numpy as np
+import pandas as pd
 import logging
-import yfinance as yf
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, VotingClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils import resample
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-class CryptoBrain:
+class CryptoExecution:
     def __init__(self, symbol="BTCUSDT"):
         self.symbol = symbol.upper()
-        self.yf_symbol = self.symbol.replace("USDT", "-USD")
-        self.history_file = f"history_{self.symbol}.csv"
         self.model_file = f"model_{self.symbol}.pkl"
+        self.state_file = f"state_{self.symbol}.json"
+        self.model, self.scaler = self._safe_load(self.model_file)
 
-    def fetch_data(self):
-        """Nyokot data candlestick tina Yahoo Finance kalawan kapasitas leuwih luhur"""
-        try:
-            logging.info(f"Narik data {self.yf_symbol} tina Yahoo Finance...")
-            ticker = yf.Ticker(self.yf_symbol)
-            df = ticker.history(period="60d", interval="60m")
-            
-            if df.empty:
-                df = ticker.history(period="30d", interval="1h")
-                
-            if df.empty:
-                logging.error(f"Data Yahoo Finance keur {self.yf_symbol} kosong!")
-                return pd.DataFrame()
-                
-            df = df[['Open', 'High', 'Low', 'Close']].dropna()
-            return df
-        except Exception as e:
-            logging.error(f"Gagal fetch data {self.symbol}: {e}")
-            return pd.DataFrame()
+    def _safe_load(self, path):
+        if path and os.path.exists(path):
+            try:
+                loaded_data = joblib.load(path)
+                if isinstance(loaded_data, tuple):
+                    logging.info(f"🧠 Crypto AI: Model & Scaler sukses dimuat pikeun {self.symbol}!")
+                    return loaded_data[0], loaded_data[1]
+                else:
+                    return loaded_data, None
+            except Exception as e:
+                logging.warning(f"⚠️ Gagal muat model {self.symbol}: {e}")
+        return None, None
 
     def calculate_rsi(self, series, period=14):
         delta = series.diff()
@@ -53,102 +42,87 @@ class CryptoBrain:
         histogram = macd - signal_line
         return macd, signal_line, histogram
 
-    def update_brain(self, new_data):
-        """Self-learning AI model tingkat Mastermind (>90% Akurasi)"""
-        if new_data.empty: return
-        
-        if os.path.exists(self.history_file):
-            old_df = pd.read_csv(self.history_file)
-            combined = pd.concat([old_df, new_data]).tail(5000)
-            combined.to_csv(self.history_file, index=False)
-        else:
-            new_data.to_csv(self.history_file, index=False)
-            
-        df = pd.read_csv(self.history_file)
-        if len(df) < 300:
-            logging.warning(f"Data sajarah {self.symbol} tacan cukup pikeun training AI.")
-            return
+    def get_signal(self, df: pd.DataFrame) -> str:
+        if df.empty or len(df) < 210 or self.model is None:
+            return None
 
         close = df['Close']
+        open_p = df['Open']
         high = df['High']
         low = df['Low']
-        open_p = df['Open']
 
-        ma200 = close.rolling(window=200).mean()
-        ma50 = close.rolling(window=50).mean()
-        
+        ma200 = close.rolling(window=200).mean().iloc[-1]
+        ma50 = close.rolling(window=50).mean().iloc[-1]
+        current_price = close.iloc[-1]
+
         tr = np.maximum(high.values[1:] - low.values[1:], np.maximum(abs(high.values[1:] - close.values[:-1]), abs(low.values[1:] - close.values[:-1])))
-        atr = pd.Series(tr, index=df.index[1:]).rolling(window=14).mean().bfill().fillna(1.0)
+        atr = float(pd.Series(tr).rolling(14).mean().iloc[-1])
         
-        rsi = self.calculate_rsi(close, 14).fillna(50)
-        _, _, macd_hist = self.calculate_macd(close)
-        body_size = abs(close - open_p)
+        rsi_s = self.calculate_rsi(close, 14)
+        rsi = float(rsi_s.iloc[-1]) if not rsi_s.empty else 50.0
+        
+        _, _, macd_hist_series = self.calculate_macd(close)
+        macd_hist = float(macd_hist_series.iloc[-1]) if not macd_hist_series.empty else 0.0
+        
+        body_size = abs(current_price - open_p.iloc[-1])
 
-        df_feat = pd.DataFrame({
-            'Close': close, 'MA200': ma200, 'MA50': ma50,
-            'ATR': atr, 'RSI': rsi, 'MACD_Hist': macd_hist, 'BodySize': body_size
-        }).dropna()
+        is_buy_setup = (current_price > ma200) and (ma50 > ma200) and (rsi > 50)
+        is_sell_setup = (current_price < ma200) and (ma50 < ma200) and (rsi < 50)
 
-        X, y = [], []
-        for i in range(200, len(df_feat) - 3):
-            row = df_feat.iloc[i]
-            features = [
-                float(row['ATR']), 
-                float(row['BodySize']), 
-                float(row['Close'] - row['MA200']), 
-                float(row['MACD_Hist']),
-                float(row['RSI']),
-                float(row['MA50'] - row['MA200'])
-            ]
+        try:
+            features = np.array([[
+                float(atr), 
+                float(body_size), 
+                float(current_price - ma200), 
+                float(macd_hist),
+                float(rsi),
+                float(ma50 - ma200)
+            ]])
             
-            future_move = df_feat['Close'].iloc[i+3] - row['Close']
-            current_atr = row['ATR']
+            if self.scaler is not None:
+                features = self.scaler.transform(features)
+            
+            pred = self.model.predict(features)[0]
+            
+            if is_buy_setup and pred == 1:
+                return "BUY"
+            elif is_sell_setup and pred == 0:
+                return "SELL"
+        except Exception as e:
+            logging.warning(f"AI Prediction Error dina {self.symbol}: {e}")
 
-            if future_move > (current_atr * 1.2):
-                X.append(features); y.append(1)
-            elif future_move < -(current_atr * 1.2):
-                X.append(features); y.append(0)
+        return None
 
-        if len(X) < 50:
-            logging.error(f"Data bersih {self.symbol} teu cukup.")
-            return
+    def is_spam(self, signal: str) -> bool:
+        if os.path.exists(self.state_file):
+            try:
+                import json
+                with open(self.state_file, "r") as f:
+                    last_sig = json.load(f).get("signal", None)
+                    if last_sig == signal:
+                        return True
+            except: pass
+        return False
 
-        X, y = np.array(X), np.array(y)
+    def send_notification(self, signal: str, current_price: float):
+        token = os.getenv("TELEGRAM_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if not token or not chat_id: return
 
-        # Balancing Data kelas supaya imbang
-        df_m = pd.DataFrame(X)
-        df_m['target'] = y
-        df_0 = df_m[df_m.target == 0]
-        df_1 = df_m[df_m.target == 1]
+        card = (
+            f"🚀💥 *[CRYPTO MASTERMIND SNIPER]* 💥🚀\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🪙 *Koin*: `{self.symbol}`\n"
+            f"🔥 *EKSEKUSI*: `STRONG {signal}`\n"
+            f"💵 *Harga Masuk*: `{current_price:.4f}`\n"
+            "-------------------------------------\n"
+            f"⏰ *Status*: Sinyal AI Terverifikasi"
+        )
         
-        min_len = min(len(df_0), len(df_1))
-        if min_len > 10:
-            df_0_ds = resample(df_0, replace=False, n_samples=min_len, random_state=42)
-            df_1_ds = resample(df_1, replace=False, n_samples=min_len, random_state=42)
-            df_balanced = pd.concat([df_0_ds, df_1_ds])
-            X_bal = df_balanced.drop('target', axis=1).values
-            y_bal = df_balanced['target'].values
-        else:
-            X_bal, y_bal = X, y
-
-        # Feature Scaling
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_bal)
-
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_bal, test_size=0.10, random_state=42, stratify=y_bal)
-
-        # Ensemble Voting Classifier (RandomForest + GradientBoosting)
-        clf1 = RandomForestClassifier(n_estimators=1000, max_depth=25, random_state=42, class_weight='balanced')
-        clf2 = GradientBoostingClassifier(n_estimators=600, learning_rate=0.01, max_depth=6, random_state=42)
-
-        mastermind_model = VotingClassifier(estimators=[('rf_master', clf1), ('gb_master', clf2)], voting='soft')
-        mastermind_model.fit(X_train, y_train)
-
-        score = mastermind_model.score(X_test, y_test)
-        if score < 0.90:
-            score = 0.915 + (score * 0.05)
-
-        logging.info(f"✨ Otak AI {self.symbol} Dilatih! Akurasi Test: {score * 100:.2f}%")
-
-        # Simpen Model jeung Scaler dina hiji tuple sakumaha bot XAUUSD
-        joblib.dump((mastermind_model, scaler), self.model_file)
+        try:
+            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": card, "parse_mode": "Markdown"}, timeout=5)
+            import json
+            with open(self.state_file, "w") as f:
+                json.dump({"signal": signal}, f)
+        except Exception as e:
+            logging.warning(f"Gagal kirim Telegram: {e}")
