@@ -3,6 +3,7 @@ import requests
 import joblib
 import numpy as np
 import pandas as pd
+import json
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -96,7 +97,6 @@ class CryptoExecution:
     def is_spam(self, signal: str) -> bool:
         if os.path.exists(self.state_file):
             try:
-                import json
                 with open(self.state_file, "r") as f:
                     last_sig = json.load(f).get("signal", None)
                     if last_sig == signal:
@@ -109,19 +109,20 @@ class CryptoExecution:
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if not token or not chat_id: return
 
+        # Format kartu bewara dipoles supados jelas harga real-time na
         card = (
             f"🚀💥 *[CRYPTO MASTERMIND SNIPER]* 💥🚀\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             f"🪙 *Koin*: `{self.symbol}`\n"
             f"🔥 *EKSEKUSI*: `STRONG {signal}`\n"
-            f"💵 *Harga Masuk*: `{current_price:.4f}`\n"
+            f"💵 *Harga Real (Yahoo/MT5)*: `{current_price:.2f}`\n"
             "-------------------------------------\n"
-            f"⏰ *Status*: Sinyal AI Terverifikasi"
+            f"📊 *Status*: Sinyal AI Terverifikasi\n"
+            f"💡 *Catetan*: Cek chart MT5 anjeun di kisaran harga ieu."
         )
         
         try:
             requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": card, "parse_mode": "Markdown"}, timeout=5)
-            import json
             with open(self.state_file, "w") as f:
                 json.dump({"signal": signal}, f)
         except Exception as e:
